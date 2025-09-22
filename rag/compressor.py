@@ -3,6 +3,10 @@ from langchain_core.prompts import (ChatPromptTemplate,
                                     SystemMessagePromptTemplate, 
                                     HumanMessagePromptTemplate)
 from langchain_core.output_parsers import StrOutputParser
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import LLMChainExtractor
+from langchain.chains import RetrievalQA
+
 from models.embedding_model import embedding_model
 
 from langchain_community.vectorstores import FAISS
@@ -37,48 +41,43 @@ db = FAISS.load_local(
     allow_dangerous_deserialization=True
 )
 
+# Helper function for printing docs
+
+
+def pretty_print_docs(docs):
+    print(
+        f"\n{'-' * 100}\n".join(
+            [f"Document {i + 1}:\n\n" + d.page_content for i, d in enumerate(docs)]
+        )
+    )
+
 
 # REPL loop
 while True:
     try:
         query = input(">> ")
-
         query = query.replace("\n", '').strip()
 
         if not query:
             continue
 
-        print("\nWait for answer...\n")
+        retriever = db.as_retriever()
 
-        retriever = db.as_retriever(
-            search_type="similarity", 
-            search_kwargs={"k": 1}
+        _extractor = LLMChainExtractor.from_llm(gemini_model)
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=_extractor, base_retriever=retriever
         )
 
-        db_response = retriever.invoke(query)
+        print("\nWait for answer...\n")
 
-        if not db_response:
-            print("No context found in DB. Try another query.\n")
-            continue
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=gemini_model,
+            retriever=compression_retriever,
+            chain_type="stuff"
+        )
 
-        content1 = db_response[0].page_content
-        # content2 = db_response[1].page_content
-        # content3 = db_response[2].page_content
-        # content4 = db_response[3].page_content
-        # context = f"{content1}{content2}{content3}{content4}"
-        context = f"{content1}"
-        
-        print("db_response->>:\n", context)
-        
-        # Chaining
-        chain = prompt | gemini_model | parser
-
-        response = chain.invoke({
-            "context": context,   # retrieved docs
-            "asked": query        # for human_message_prompt
-        })
-
-        print("\n\nAnswer::\n", response, "\n")
+        answer = qa_chain.invoke({"query": query})
+        print(answer['result'])
 
     except KeyboardInterrupt:
         print("\nExiting...")

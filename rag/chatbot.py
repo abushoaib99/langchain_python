@@ -44,6 +44,10 @@ chain = get_conversational_chain()
 while True:
     try:
         query = input(">> ")
+        query = query.replace("\n", '').strip()
+
+        if not query:
+            continue
 
         print("\nWait for answer...\n")
 
